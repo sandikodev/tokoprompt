@@ -1,0 +1,279 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Plan (Freemium) ─────────────────────────────────────────────────────────
+
+enum Plan {
+  FREE
+  PRO
+}
+
+// ─── Auth (Better Auth) ──────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  plan          Plan      @default(FREE)
+  planExpiresAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+  apiKeys       ApiKey[]
+  workspaces    Workspace[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  accountId         String
+  providerId        String
+  accessToken       String?
+  refreshToken      String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope             String?
+  password          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── AI API Keys (BYOK) ──────────────────────────────────────────────────────
+
+enum AiProvider {
+  OPENAI
+  ANTHROPIC
+  GEMINI
+}
+
+model ApiKey {
+  id         String      @id @default(cuid())
+  userId     String
+  provider   AiProvider
+  keyHash    String      // encrypted/hashed key
+  keyPreview String      // last 4 chars e.g. "...k3v2"
+  baseUrl    String?     // custom API proxy base URL
+  label      String?
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  usageLogs  UsageLog[]
+
+  @@unique([userId, provider])
+}
+
+// ─── Workspace ───────────────────────────────────────────────────────────────
+
+model Workspace {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  slug        String    @unique
+  description String?
+  logoUrl     String?
+
+  // Brand DNA
+  brandTone   String?   // e.g. "profesional teknikal"
+  brandStyle  String?   // e.g. "clean, dark, minimalist"
+  brandGuide  String?   // full brand guideline text
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects    Project[]
+}
+
+// ─── Project (per Product) ───────────────────────────────────────────────────
+
+enum Platform {
+  SHOPEE
+  TOKOPEDIA
+  TIKTOK_SHOP
+  ALL
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model Project {
+  id            String        @id @default(cuid())
+  workspaceId   String
+  name          String
+  productName   String
+  category      String?
+  targetMarket  String?       // e.g. "hobbyist / engineer / student"
+  priceRange    String?
+  mainFeature   String?
+  powerSource   String?
+  compatibility String?
+  useCase       String?
+  platform      Platform      @default(ALL)
+  languageStyle String?       @default("teknikal") // formal / santai / teknikal
+  status        ProjectStatus @default(DRAFT)
+  notes         String?
+
+  // Raw product spec (from user input)
+  rawSpec       String?       @db.Text
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Generated content
+  titles          GeneratedTitle[]
+  descriptions    GeneratedDescription[]
+  slides          GeneratedSlide[]
+  imagePrompts    ImagePrompt[]
+  usageLogs       UsageLog[]
+  productContexts ProductContext[]
+
+  @@index([workspaceId])
+}
+
+// ─── RAG Knowledge Base (per Product) ───────────────────────────────────────
+
+model ProductContext {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String?                    // user-assigned label, e.g. "Spesifikasi Teknis"
+  content     String   @db.Text          // the actual knowledge chunk
+  source      String   @default("manual") // "manual" | "upload"
+  sourceName  String?                    // file name if uploaded
+  chunkIndex  Int      @default(0)       // chunk order within same source
+  charCount   Int?
+  createdAt   DateTime @default(now())
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ─── Generated Content ───────────────────────────────────────────────────────
+
+model GeneratedTitle {
+  id          String    @id @default(cuid())
+  projectId   String
+  platform    Platform
+  title       String
+  seoScore    Int?      // 0–100
+  reasoning   String?
+  isSelected  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model GeneratedDescription {
+  id          String    @id @default(cuid())
+  projectId   String
+  platform    Platform
+  content     String    @db.Text
+  charCount   Int?
+  isSelected  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model GeneratedSlide {
+  id          String    @id @default(cuid())
+  projectId   String
+  slideNumber Int       // 1–9
+  headline    String
+  subtext     String?   @db.Text
+  cta         String?
+  isSelected  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model ImagePrompt {
+  id          String    @id @default(cuid())
+  projectId   String
+  slideNumber Int       // 1–9 (corresponds to slide)
+  prompt      String    @db.Text
+  style       String?   // "banana2" | "banana3pro" | "general"
+  isSelected  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ─── Usage Tracking ──────────────────────────────────────────────────────────
+
+enum GenerationType {
+  TITLE
+  DESCRIPTION
+  SLIDE
+  IMAGE_PROMPT
+}
+
+model UsageLog {
+  id             String         @id @default(cuid())
+  projectId      String
+  apiKeyId       String
+  provider       AiProvider
+  generationType GenerationType
+  inputTokens    Int?
+  outputTokens   Int?
+  costEstimate   Float?         // in USD
+  createdAt      DateTime       @default(now())
+
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  apiKey         ApiKey         @relation(fields: [apiKeyId], references: [id])
+
+  @@index([projectId])
+  @@index([apiKeyId])
+}
